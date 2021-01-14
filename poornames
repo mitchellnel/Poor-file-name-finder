@@ -1,0 +1,157 @@
+#!/bin/bash
+# Shebang
+
+##### Error Checking & Argument Handling #####
+wd=""		# wd will hold the directory we are going to check
+rOption=$((0))	# rOption will effectively be a Boolean value for whether to
+		#    use recursion
+# Check $#, $1 and $2 for valid values
+case $# in
+
+0)
+	wd=.
+	;;
+
+1)
+	if [ $1 == "-r" ]
+	then
+		rOption=$((1))
+		wd=.
+	else
+		wd=$1
+
+		if [ ${wd:0:1} == '-' ]
+		then
+			echo "Error 1: First character of directory cannot be '-'" >&2
+			exit 1
+		fi
+	fi
+	;;
+
+2)
+	if [ $1 != "-r" ]
+	then
+		if [ ${1:0:1} != '-' ]
+		then
+			echo "Error 2: Option must be passed before directory" >&2
+			exit 1
+		else
+			echo "Error 3: Extraneous option passed to poornames" >&2
+			exit 1
+		fi
+	else
+		rOption=$((1))	# aka true
+	fi
+
+	wd=$2
+
+	if [ ${wd:0:1} == '-' ]
+	then
+		echo "Error 1: First character of directory cannot be '-'" >&2
+		exit 1
+	fi
+	;;
+*)
+	echo "Error 4: Too many arguments passed" >&2
+	exit 1
+	;;
+
+esac
+
+# Check if passed directory actually exists
+if [ ! -d $wd ]
+then
+	echo "Error 5: Directory $wd does not exist" >&2
+	exit 1
+fi
+
+# Check if we have permission to read the passed directory
+if [ ! -r $wd ]
+then
+	echo "Error 10: Lack of permissions to read $wd" >&2
+fi
+
+# Delete the '/' from the end of the dir if there is one
+# This makes things easier for outputting the invalid files down the line
+wd=$(echo "$wd" | sed -r 's/\/$//')
+
+##### Basic poornames #####
+basicPN ( ) {
+	# Simulated Boolean variable to check if particular edge case is present
+	asteriskPresent=$((0))
+	wd=$1
+
+	# Find all immediate directory entries
+	immediateDirEntries=$(ls -A -N "$wd")	
+
+	# Check for edge case presence of '*' in immediateDirEntries
+	if [ $(echo "$immediateDirEntries" | grep '^\*$' | wc -w) -gt 0 ]
+	then
+		# set asteriskPresent to true
+		asteriskPresent=$((1))
+
+		# remove it from immediateDirEntries lest it cause problems later
+		immediateDirEntries=$(echo "$immediateDirEntries" | sed '/^*$/d')
+	fi 
+
+	# Find those entries that violate the file name component guidelines
+	invalidEntries=$(echo "$immediateDirEntries" | grep -E '[^-_.A-Za-z]|^-|^\.|^.{15,}')
+	
+	# Remove these entries from immediateDirEntries using the same regex
+	validEntries=$(echo "$immediateDirEntries" | \
+			sed -r '/[^-_.A-Za-z]|^-|^\.|^.{15,}/d')
+
+	# Find duplicate entries from the validEntries
+	duplicateEntries=$(echo "$validEntries" | sort -f | uniq -i -D)
+
+	# Merge invalidEntires and duplicateEntries
+	poorEntries="$invalidEntries"$'\n'"$duplicateEntries"
+
+	# Write all of the poorEntries to stdout
+	IFS=$'\n'
+	for entry in $poorEntries;
+	do
+		if [ -d "$wd/$entry" ]
+		then
+			echo "$wd"/"$entry"/
+		else
+			echo "$wd"/"$entry"
+		fi
+	done
+
+	# Print the * poorEntry if necessary
+	if [ $asteriskPresent -eq 1 ]
+	then
+		echo "$wd"/\*
+	fi
+}
+
+##### Recursive poornames #####
+recursivePN ( ) {
+	wd=$1
+
+	# Find poornames in the passed in directory
+	basicPN $wd
+
+	# Find all sub-directories in the passed in directory
+	#   and call recursivePN on them
+	IFS=$'\n'
+	for subdir in $(find "$wd" -maxdepth 1 -mindepth 1 -type d);
+	do
+		# Check if we have permission to read the sub-directory
+		if [ ! -r $wd ]
+		then
+			echo "Error 10: Lack of permissions to read $wd" >&2
+		fi
+
+		recursivePN $subdir
+	done
+}
+
+##### "main function" #####
+if [ $rOption -eq 1 ]
+then
+	recursivePN $wd
+else
+	basicPN $wd
+fi
